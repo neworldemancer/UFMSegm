@@ -151,7 +151,7 @@ class Trainer(object):
 
     def notify_loss(self):
         if not self.has_notified:
-            requests.post('https://hooks.slack.com/services/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',
+            requests.post('https://hooks.slack.com/services/X/Y/Z',
                           data={'payload': """{
                                       "channel": "#bbb",
                                       "username": "DeepBot",
@@ -162,7 +162,7 @@ class Trainer(object):
             self.has_notified = True
 
     def notify_done(self):
-        requests.post('https://hooks.slack.com/services/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',
+        requests.post('https://hooks.slack.com/services/X/Y/Z',
                       data={'payload': """{
                               "channel": "#bbb",
                               "username": "DeepBot",
