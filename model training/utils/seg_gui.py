@@ -75,6 +75,7 @@ class PathConfig:
     ref_ds_path: str = ""
     VF_root: str = ""
     proc_bin_path: str = ""
+    ds_info_file: str = ""
 
 
 # methods for loading and storing the config to file
@@ -456,6 +457,34 @@ def gen_segm_bat(ds_ids_list, pcfg: PathConfig):
     return gen_proc_bat(ds_ids_list, pcfg, script_name='segment')
 
 
+def read_info_file(ds_inf_file_path):
+    try:
+        with open(ds_inf_file_path, 'rt') as f:
+            lines = f.readlines()
+    except FileNotFoundError:
+        lines = []
+    ds_inf = {}
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        subs = line.split('-')
+        k = int(subs[0].strip())
+        v = '-'.join(subs[1:])
+
+        ds_inf[k] = v.strip()
+    return ds_inf
+
+
+def save_ds_inf(ds_inf_file_path, ds_inf, new_ds_list):
+    with open(ds_inf_file_path, 'wt') as f:
+        for k, v in ds_inf.items():
+            f.write(f'{k} - {v}\n')
+
+        next_idx = (max(ds_inf.keys()) + 1) if len(ds_inf) else 0
+        for i, title in enumerate(new_ds_list):
+            f.write(f'{next_idx + i} - {title}\n')
+
 def run_segmentation(cfg: ProcConfig):
     nb_start_t = timer()
     proc_res = {'status': False, 'last_dataset_idx': -1}
@@ -473,7 +502,8 @@ def run_segmentation(cfg: ProcConfig):
                           models_path=cfg.models_path,
                           ref_ds_path=cfg.ref_ds_path,
                           VF_root=cfg.VF_root,
-                          proc_bin_path=cfg.VF_root + 'bin\\'
+                          proc_bin_path=cfg.VF_root + 'bin\\',
+                          ds_info_file=cfg.datasets_path+'info.txt'
                           )
 
         fast_model_itr = cfg.fast_model_itr
@@ -936,7 +966,28 @@ def run_segmentation(cfg: ProcConfig):
         if auto_proc:
             start_remote_job(pcfg, bat_file)
 
-            # Cell segmentation
+        # update datasets info file - add raw for each of the merged datasets id + title
+        # the title is formed as f'{tiles_info[first_tile_idx]}-{tiles_info[last_tile_idx]}'
+        # read info file into dict
+        ds_inf = read_info_file(pcfg.ds_info_file)
+
+        # add new datasets
+        new_ds_list = []
+        for ds_id, ((ny, nx, tile_dx, tile_dy), list_of_tile_dataset_ids) in tiles_info.items():
+            first_tile_idx = min(list_of_tile_dataset_ids)
+            last_tile_idx = max(list_of_tile_dataset_ids)
+            title = f'{ds_inf[first_tile_idx]}-{ds_inf[last_tile_idx]}'
+            new_ds_list.append(title)
+
+        # save new info file
+        save_ds_inf(pcfg.ds_info_file, ds_inf, new_ds_list)
+        new_ds_inf = read_info_file(pcfg.ds_info_file)
+        if max(new_ds_inf.keys()) != max(tiles_info.keys()):
+            print(f'warning: potential errirs in the datasets info file: {pcfg.ds_info_file}'
+                  f' - last dataset id: {max(new_ds_inf.keys())}'
+                  f'tilkes info: {str(tiles_info)}')
+
+        # Cell segmentation
         # gen segmentation bat file
         prog_seg = pcfg.proc_bin_path + 'proc_ds_flr_n.bat'
 

@@ -20,6 +20,7 @@ Utility for working with multi-times & tiled/multiposition CZI files to extract 
 import numpy as np
 import czifile
 import copy
+from tqdm.auto import tqdm
 
 def segment_has_M_dim(s):
     de = s.dimension_entries
@@ -83,7 +84,7 @@ def get_n_z(coord_ranges):
     
 def get_data_dict(subblocks, dim_ofs):
     data = {
-        tuple(do.values()):s.data().squeeze() for s, do in zip(subblocks, dim_ofs)
+        tuple(do.values()):s.data().squeeze() for s, do in tqdm(zip(subblocks, dim_ofs))
     }
     return data
     

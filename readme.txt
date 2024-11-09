@@ -79,3 +79,7 @@ Set the range of dataset ids to be processed. They should be last in the dataset
 `datasets_ids = list(range(0, 8)) # for datasets 0, 1, 2, 3, 4, 5, 6, 7`
 
 Run all notebook cells. If the set up was carried out correctly - all should work.
+
+_ A1. dependencies _
+
+aicsimageio, czifile, tf1.14,... - (ToDo: made depedencies from imports in the notebooks)
