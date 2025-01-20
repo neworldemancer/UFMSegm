@@ -31,7 +31,7 @@ import shutil
 plt.style.use('ggplot')
 from threading import Thread
 
-from ipywidgets import Layout, HBox, VBox, Text, Button, Output, HTML
+from ipywidgets import Layout, HBox, VBox, Text, Button, Output, HTML, Checkbox
 from IPython.display import display
 
 from . import imgio as iio
@@ -49,6 +49,10 @@ class ProcConfig:
     next_dataset_id: int = 0
     dataset_id_first_run: int = -1
     dataset_id_last_run: int = -1
+
+    tile_overlap_fraction: float = 0.1
+
+    skip_completed: bool = True
 
     datasets_path: str = os.path.abspath('../../datasets_seg') + os.path.sep
     models_path: str = os.path.abspath('../../trained models') + os.path.sep
@@ -527,6 +531,9 @@ def run_segmentation(cfg: ProcConfig):
 
         rds_id = cfg.rds_id
 
+        tile_overlap_frac = cfg.tile_overlap_fraction
+        skip_completed = cfg.skip_completed
+
         nums = []
         datasets_names = []
         fluo_present = []
@@ -544,6 +551,8 @@ def run_segmentation(cfg: ProcConfig):
         datasets_hw = []  # image hight/width
 
         tile_sep = '_tile'
+
+        # prepare datasets info for processing
         for ds_idx in datasets_ids:
             # read info file
             info_file_name = pcfg.datasets_path + '%03d/info.txt' % ds_idx
@@ -633,7 +642,7 @@ def run_segmentation(cfg: ProcConfig):
                                                                                       datasets_tile_idx,
                                                                                       datasets_ids, datasets_hw,
                                                                                       merged_ds_start_idx=merged_ds_idx0,
-                                                                                      overlap_frac=0.1
+                                                                                      overlap_frac=tile_overlap_frac
                                                                                       )
 
         # load models
@@ -669,6 +678,10 @@ def run_segmentation(cfg: ProcConfig):
                               io_map=io_map)
 
         for tmpl, nnrm, num in zip(datasets_tmplts, datasets_normed, nums):
+            if skip_completed and os.path.exists(nnrm + '.npz'):
+                print(f'skipping {tmpl} - {nnrm} already exists')
+                continue
+
             print(tmpl)
             stack = iio.read_image_stack(tmpl, num, 1)
 
@@ -690,6 +703,11 @@ def run_segmentation(cfg: ProcConfig):
 
         t0 = timer()
         for i, (nnrm, num, ds_idx, stck_tmpl) in enumerate(zip(datasets_normed, nums, datasets_ids, datasets_tmplts)):
+            test_done_file = pcfg.datasets_path + '%03d/' % ds_idx + 'imgs_aligned_all/bin_mask_bg/%03d.png' % (num - 1)
+            if skip_completed and os.path.exists(test_done_file):
+                print(f'skipping {nnrm} - {test_done_file} already aligned')
+                continue
+
             # read normalized
             stack_normf = np.load(nnrm + '.npz')
             for stack_norm in stack_normf.values():
@@ -737,6 +755,11 @@ def run_segmentation(cfg: ProcConfig):
 
         for i, tmpl, tmpl_hn, boundaries, num in zip(datasets_ids, datasets_tmplts, datasets_hist_normed,
                                                      block_boundaries, nums):
+            test_file = tmpl_hn % (num - 1)
+            if skip_completed and os.path.exists(test_file):
+                print(f'skipping {tmpl} - {test_file} already hist normalized')
+                continue
+
             print(tmpl)
             stack = iio.read_image_stack(tmpl, num, 1)
             if len(stack.shape) == 4:
@@ -823,7 +846,11 @@ def run_segmentation(cfg: ProcConfig):
         # gen all alignments bat file
         cmd = '@echo off\n'
 
-        for ds_idx in datasets_ids:
+        for ds_idx, al_datasets_tmpl, num in zip(datasets_ids, al_datasets_tmplts, nums):
+            test_file = al_datasets_tmpl % (num - 1)  # last dataset, last file
+            if skip_completed and os.path.exists(test_file):
+                print(f'skipping timeframe alignment for {al_datasets_tmpl} - {test_file} already aligned')
+                continue
             cmd += 'call %03d' % ds_idx + '\\align.bat \n'
 
         first_last = str(datasets_ids[0])
@@ -845,6 +872,10 @@ def run_segmentation(cfg: ProcConfig):
 
         # normalization
         for tmpl, nnrm, num in zip(al_datasets_tmplts, al_datasets_normed, nums):
+            if skip_completed and os.path.exists(nnrm + '.npz'):
+                print(f'skipping {tmpl} - {nnrm} already aligned')
+                continue
+
             print(tmpl)
             stack = iio.read_image_stack(tmpl, num)
             stack_center = stack[:, 130:-130, 130:-130]
@@ -856,7 +887,12 @@ def run_segmentation(cfg: ProcConfig):
 
         # Prediction by aligned
         t0 = timer()
-        for i, (nnrm, ds_idx) in enumerate(zip(al_datasets_normed, datasets_ids)):
+        for i, (nnrm, ds_idx, num) in enumerate(zip(al_datasets_normed, datasets_ids, nums)):
+            test_file = pcfg.datasets_path + '%03d/' % ds_idx + 'pred_cdc/cell/img_%03d.png' % (num - 1)
+            if skip_completed and os.path.exists(test_file):
+                print(f'skipping inference {nnrm} - {test_file} already aligned')
+                continue
+
             # load normalized
             stack_normf = np.load(nnrm + '.npz')
             for stack_norm in stack_normf.values():
@@ -958,7 +994,13 @@ def run_segmentation(cfg: ProcConfig):
         cmd = '@echo off\n'
 
         for ds_idx in tiles_info:
+            test_file = pcfg.datasets_path + '%03d/' % ds_idx + 'imgs_aligned_all/raw/%03d.png' % 0  # first file
+            if skip_completed and os.path.exists(test_file):
+                print(f'skipping merging for {ds_idx} - {test_file} already aligned')
+                continue
+
             cmd += 'call %03d' % ds_idx + '\\merge.bat \n'
+
         bat_file = pcfg.datasets_path + 'merge_' + str(merged_tiles_ids) + '.bat'
         with open(bat_file, 'wt') as f:
             f.write(cmd)
@@ -1048,13 +1090,25 @@ def seg_gui():
     # 0. load config
     proc_cfg = load_proc_cfg()
 
-    # 1. "datasets indexes range" - 2 input fields for integers of first, last dataset idx
+    # 1.1 "datasets indexes range" - 2 input fields for integers of first, last dataset idx
     first_idx_guess = proc_cfg.next_dataset_id
-    last_idx_guess = first_idx_guess + 7
+
+    ds_inf = read_info_file(proc_cfg.datasets_path + 'info.txt')
+    if len(ds_inf):
+        last_idx_guess = max(ds_inf.keys())
+    else:
+        last_idx_guess = first_idx_guess + 7
+
     dataset_id_first_ti = Text(value=f'{first_idx_guess}', description='Dataset range: first:',
                                layout=Layout(width='300px'))
     dataset_id_last_ti = Text(value=f'{last_idx_guess}', description='last:', layout=Layout(width='300px'))
     datasets_range_b = HBox([dataset_id_first_ti, dataset_id_last_ti])
+
+    # 1.2 overlap percent, default 10%
+    overlap_perc_ti = Text(value='10', description='Tiles overlap %:', layout=Layout(width='600px'))
+
+    # 1.3 redo completed processing (currently segmentation is always executed)
+    redo_proc_cb = Checkbox(value=False, description='Redo completed processing', layout=Layout(width='600px'))
 
     # 2. "dataset root path" - input field for string with default value set to `datasets_path`
     dataset_path_ts = Text(value=proc_cfg.datasets_path, description='Dataset root path:', layout=Layout(width='600px'))
@@ -1089,6 +1143,8 @@ def seg_gui():
     def on_run_button_clicked(b, proc_cfg: ProcConfig):
         proc_cfg.dataset_id_first_run = int(dataset_id_first_ti.value)
         proc_cfg.dataset_id_last_run = int(dataset_id_last_ti.value)
+        proc_cfg.tile_overlap_fraction = int(overlap_perc_ti.value)/100
+        proc_cfg.skip_completed = ~redo_proc_cb.value
         proc_cfg.next_dataset_id = int(dataset_id_last_ti.value) + 1  # tentative - to be updated dependin
         proc_cfg.datasets_path = dataset_path_ts.value
         proc_cfg.models_path = models_path_ts.value
@@ -1112,7 +1168,7 @@ def seg_gui():
 
             last_dataset_idx = proc_res['last_dataset_idx']
 
-            proc_cfg.next_dataset_id = last_dataset_idx
+            proc_cfg.next_dataset_id = last_dataset_idx + 1
         save_proc_cfg(proc_cfg)
 
     on_run_button_clicked_p = partial(on_run_button_clicked, proc_cfg=proc_cfg)
@@ -1122,6 +1178,8 @@ def seg_gui():
     controls_b = VBox(
         [
             datasets_range_b,
+            overlap_perc_ti,
+            redo_proc_cb,
             dataset_path_ts,
             dataset_proc_path_ts,
             VF_root_ts,
