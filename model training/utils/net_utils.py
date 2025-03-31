@@ -20,6 +20,12 @@ import numpy as np
 import os
 import tensorflow as tf
 
+_XavierInit = None
+try:
+    _XavierInit = tf.contrib.layers.xavier_initializer
+except:
+    _XavierInit = tf.initializers.glorot_uniform
+
 
 def fully_connected_layer(x,
                           n_output,
@@ -72,7 +78,7 @@ def fully_connected_layer(x,
                 name='W',
                 shape=[n_input, n_output],
                 dtype=tf.float32,
-                initializer=tf.contrib.layers.xavier_initializer())
+                initializer=_XavierInit())
 
             b = tf.get_variable(
                 name='b',
@@ -123,7 +129,7 @@ def conv_3D(x, n_output_ch,
             brn_rd_max=None,
             spectral_norm=False,
             bn_order='CBR',
-            initializer=tf.contrib.layers.xavier_initializer
+            initializer=_XavierInit
             ):
     """
     Helper for creating a 3d convolution operation.
@@ -297,7 +303,7 @@ def conv_2D(x, n_output_ch,
             brn_rd_max=None,
             spectral_norm=False,
             bn_order='CBR',
-            initializer=tf.contrib.layers.xavier_initializer
+            initializer=_XavierInit
             ):
     """
     Helper for creating a 3d convolution operation.
